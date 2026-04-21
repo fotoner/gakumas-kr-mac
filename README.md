@@ -47,7 +47,7 @@ make help     # 도움말
 
 **기본 원리는 DMM(Windows) / Android 한글패치와 동일합니다.** 학원마스 프로세스에 `GakumasLocalify` dylib을 로드시키고, Unity IL2CPP 함수(TextMeshPro 등 텍스트 출력 루틴)를 **inline hook**으로 가로채서 일본어 → 한국어로 치환하는 방식. 번역 데이터(`localization.json`, `generic.json` 등)는 dylib이 GitHub 릴리스에서 자동 다운로드합니다.
 
-### 플랫폼별 차이는
+### 플랫폼별 차이
 
 
 | 플랫폼             | 주입 방식                                     | Hook 엔진                            |
@@ -60,7 +60,7 @@ make help     # 도움말
 
 DMM/Android는 hook 엔진을 패키지에 정적 링크하지만, **iOS dylib은 hook 엔진이 외부에 있을 것으로 가정**합니다 (LiveContainer가 제공). Mac Catalyst엔 그런 시스템이 없어서 이 저장소가 **Dobby를 별도 dylib으로 직접 빌드해서 번들**합니다. 나머지(번역 데이터 자동 다운로드, IL2CPP hook 로직)는 기존 플랫폼과 완전히 동일합니다.
 
-## 의존성 (`make setup`으로 자동 clone + 빌드)
+## 의존성
 
 
 | 라이브러리                                                       | 버전        | 라이선스        | 역할                           |
