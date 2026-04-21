@@ -1,0 +1,24 @@
+# 빌드 산물 (make setup으로 재생성)
+tools/libdobby.dylib
+tools/insert_dylib
+
+# 의존성 소스 (make setup으로 clone)
+vendor/
+
+# 임시 파일
+/tmp/gaku-*
+*.orig
+*.orig.meta.json
+.DS_Store
+
+# 로컬 개발 작업 노트 (공개 안 함)
+docs/
+
+# 커뮤니티 배포본 dylib — 재배포 금지, 사용자가 직접 획득
+ios/*.dylib
+
+# 에디터
+.vscode/
+.idea/
+*.swp
+.claude/
