@@ -102,7 +102,7 @@ make revert   ← 원복
 
 ## 핵심 작업 원칙
 
-- **PlayCover UI의 Play 버튼 지양**: 실행 시 재서명 덮어쓸 가능성. `open "$APP"`으로 직접 실행 권장.
+- **실행은 반드시 `make run`(resign-with-jit), PlayCover Play 버튼 금지**: Play 버튼은 library validation 포함 엔타이틀먼트로 앱을 띄워서, dyld가 adhoc 서명된 주입 dylib(`GakumasLocalifyIOS_KR`/`libdobby`)을 **조용히 스킵**함 → 게임은 정상 실행되지만 한패 미적용(텍스트 전부 일본어, 크래시 없음). `make run`은 `disable-library-validation` + JIT 엔타이틀먼트로 재서명 후 `open`하므로 주입 dylib이 로드됨. 로드 여부 확인: `vmmap <pid> | grep -i gakumas`.
 - **`insert_dylib`은 LC_CODE_SIGNATURE를 스트립함** → 재서명 필수.
 - **`codesign --deep` 사용하지 말 것** (macOS 11+ deprecated). 프레임워크별로 개별 서명.
 - **`plutil -insert`는 키에 점(`.`)이 있으면 경로로 해석해 실패** → `/usr/libexec/PlistBuddy`에 키를 작은따옴표로 감싸서 사용.
@@ -118,6 +118,7 @@ make revert   ← 원복
 ## 상태
 
 - **Day 0 스파이크 통과** (2026-04-22 02:00): macOS 26 Tahoe + PlayCover + Dobby 주입으로 게임 내 한국어 표시 확인
+- **게임 업데이트 대응** (2026-06-14): 게임이 Unity 6대 빌드로 갱신되며 기존 dylib이 후킹 단계(`StartInjectFunctions`)에서 SIGSEGV. 게임이 엔진(Unity) 버전을 올리면 dylib도 해당 게임 버전을 지원하는 상위 upstream 빌드로 교체해야 함 — 교체 후 정상 작동 확인. (이후 1회성 Metal 텍스처 assert는 셰이더 캐시 워밍업으로 재실행 시 해소)
 - **Phase 1 대기 중**: SwiftUI Drop Zone 앱으로 `tools/patch.sh`를 GUI 래핑
 
 ## 라이선스 / 법적
