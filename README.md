@@ -43,6 +43,46 @@ make clean    # 빌드 산물 삭제 (vendor/는 유지)
 make help     # 도움말
 ```
 
+### 재실행 시 로그인이 풀리는 경우: 선택적 PoC
+
+학원마스 3.4.0(build 89) + PlayCover 3.1.0 + PlayTools 1.1.7에서 Firebase의 저장 로그인 조회가 실패하는 문제를 확인했습니다. Firebase는 숫자 `kSecMatchLimit=2`로 배열을 요청하지만 PlayChain이 단일 dictionary를 반환해 `ERROR_KEYCHAIN_ERROR`가 발생합니다. [Firebase 조회 코드](https://github.com/firebase/firebase-ios-sdk/blob/85560b48b0ff099ad83fe53d67df3c67fbc2b7a6/FirebaseAuth/Sources/Swift/Storage/AuthKeychainServices.swift#L140), [PlayTools 반환 코드](https://github.com/PlayCover/PlayTools/blob/f2bfbd76ff55f4737c959fa2eac07f9ada2e6d7e/PlayTools/MysticRunes/PlayedApple.swift#L114)
+
+[학원마스 전용 보정 코드](tools/login-persistence-poc/src/PlayChainCompat.m)는 해당 조회를 배열로 반환하도록 보정합니다. 로그인 저장소에 쓰거나 공용 PlayTools를 교체하지 않습니다. 적용 후 실제 게임에서 로그인 복원 오류 소멸과 종료·재실행 후 기존 계정 홈 진입을 확인했습니다. 기본 `make patch`에는 포함되지 않은 **선택적 PoC**입니다.
+
+Apple Silicon Mac, Xcode의 macOS SDK, Python 3, Git이 필요합니다. 먼저 위의 `make setup`과 `make patch`를 완료하세요. 아래 명령은 저장소 루트에서 실행합니다.
+
+```bash
+# 테스트용 공식 PlayTools 소스 — 고정 커밋, Git 추적 제외
+git clone --filter=blob:none --no-checkout https://github.com/PlayCover/PlayTools.git \
+  tools/login-persistence-poc/PlayTools-source
+git -C tools/login-persistence-poc/PlayTools-source checkout --detach \
+  f2bfbd76ff55f4737c959fa2eac07f9ada2e6d7e
+
+# 별도 임시 DB의 가짜 로그인 데이터로 테스트하고 PoC dylib 빌드
+python3 tools/login-persistence-poc/build-and-test.py
+
+# 게임을 종료한 상태에서 적용 후 실행
+bash tools/login-persistence-poc/apply.sh
+make run
+
+# 게임을 종료한 상태에서 PoC만 제거 — 한국어 패치와 로그인 DB 유지
+bash tools/login-persistence-poc/rollback.sh
+make run
+```
+
+테스트는 [실제 PlayChain 소스와 재현 코드](tools/login-persistence-poc/src/main.swift)를 컴파일해 6개 프로세스에서 저장, 기존 오류 재현, 재실행, 세션 갱신 후 재실행을 검증합니다. 숫자 제한, 항목별 데이터, 없는 항목, 단일 조회, attributes-only 조회를 포함한 **46개 검증을 통과**했습니다. 실행 기록은 로컬 `test-results.txt`에 생성되며 공개하지 않습니다.
+
+PoC의 한계와 복구 범위:
+
+- 숫자 제한이 1보다 큰 generic password의 attributes+data 조회만 보정합니다. 다른 조회는 기존 구현에 전달합니다.
+- 같은 primary key를 가진 중복 행은 기존 one 조회로 구분할 수 없습니다. 첫 항목 선택을 유지하며, 기존 중복 항목을 삭제하거나 중복 경고를 없애지는 않습니다.
+- 암호화된 KeyCover와 평문 PlayChain DB가 함께 존재할 때의 동기화 문제까지 해결하지 않습니다. 실행은 계속 `make run`을 사용하세요.
+- 적용·복구 스크립트는 3.4.0(build 89)에 한정합니다. 다른 버전은 추가 검증이 필요합니다. 재임포트하면 PoC는 사라지므로 이전 설치의 백업을 새 설치에 복원하지 마세요.
+- 적용 직전 실행 파일과 엔타이틀먼트는 로컬 `private-backup/`에 보관하고, 기존 `.orig`는 보존합니다. 다른 경로에서 이미 적용한 PoC는 그 경로의 복구 스크립트를 사용하세요.
+- PoC 진단은 반환 형식·항목 수·사용자 객체 존재 여부만 기록합니다. 토큰과 사용자 식별자를 출력하지 않습니다. Firebase 자체의 중복 경고 등 원래 게임 로그에는 민감한 값이 포함될 수 있으므로 로그 전체를 공개하지 마세요.
+
+저장소에는 직접 작성한 PoC 소스와 스크립트만 포함합니다. 게임·번역 바이너리, 로그인 백업, 실행 로그, PlayTools 소스 및 빌드 결과는 제외합니다. 테스트 의존성 PlayTools의 라이선스는 [AGPL-3.0](https://github.com/PlayCover/PlayTools/blob/f2bfbd76ff55f4737c959fa2eac07f9ada2e6d7e/LICENSE)이며, 내려받은 소스의 라이선스와 고지를 유지합니다.
+
 ## 작동 원리
 
 **기본 원리는 DMM(Windows) / Android 한글패치와 동일합니다.** 학원마스 프로세스에 `GakumasLocalify` dylib을 로드시키고, Unity IL2CPP 함수(TextMeshPro 등 텍스트 출력 루틴)를 **inline hook**으로 가로채서 일본어 → 한국어로 치환하는 방식. 번역 데이터(`localization.json`, `generic.json` 등)는 dylib이 GitHub 릴리스에서 자동 다운로드합니다.
