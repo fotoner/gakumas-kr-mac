@@ -25,11 +25,3 @@ OSStatus fx_copy(NSDictionary *query, id __autoreleasing *result) {
     *result = CFBridgingRelease(raw);
     return status;
 }
-
-@interface GakuFixturePartialKeychain : NSObject
-@end
-@implementation GakuFixturePartialKeychain
-+ (OSStatus)copyMatching:(NSDictionary *)query result:(CFTypeRef *)result { return errSecItemNotFound; }
-@end
-
-Class fx_partial_class(void) { return GakuFixturePartialKeychain.class; }

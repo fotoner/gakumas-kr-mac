@@ -30,10 +30,6 @@ static DeleteIMP originalDelete;
 static SEL copySelector;
 static Class installedClass;
 
-#ifdef GAKU_POC_FIXTURE
-static BOOL fixtureNaiveAdd; // control only: duplicate on any match, i.e. without the count>1 guard
-#endif
-
 static NSArray *genericPrimaries(void) {
     return @[K(kSecAttrAccessGroup), K(kSecAttrAccount), K(kSecAttrService)];
 }
@@ -176,9 +172,6 @@ static OSStatus compatibleAdd(id cls, SEL cmd, NSDictionary *attributes, CFTypeR
         // overwriting it could replace the restored account with a fresh login.
         BOOL unseen = [unseenIdentities() containsObject:identity];
         BOOL duplicate = existing == 1 && !unseen;
-#ifdef GAKU_POC_FIXTURE
-        duplicate = duplicate || (fixtureNaiveAdd && existing > 1);
-#endif
         if (duplicate) {
             NSLog(@"[GakuPlayChainCompat] add existing=%ld -> errSecDuplicateItem", (long)existing);
             return errSecDuplicateItem;
@@ -256,16 +249,6 @@ uint32_t GakuInstallPlayChainCompat(Class cls) {
           !!(installed & GakuCompatAdd), !!(installed & GakuCompatDelete));
     return installed;
 }
-
-#ifdef GAKU_POC_FIXTURE
-// Controls for the test harness only; never compiled into the game dylib.
-uint32_t GakuFixtureInstallReadOnly(Class cls) { // v1 behaviour
-    copySelector = NSSelectorFromString(@"copyMatching:result:");
-    return swizzle(cls, @"copyMatching:result:", (IMP)compatibleCopyMatching, (IMP *)&originalCopyMatching)
-        ? GakuCompatRead : 0;
-}
-void GakuFixtureSetNaiveAdd(BOOL enabled) { fixtureNaiveAdd = enabled; }
-#endif
 
 #ifndef GAKU_POC_FIXTURE
 __attribute__((constructor)) static void installGameCompat(void) {
