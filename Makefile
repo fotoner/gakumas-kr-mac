@@ -1,6 +1,6 @@
 # gakumas-kr-mac — 학원마스 한국어 패치 (Mac IPA 런타임)
 #
-# 지원: IPA로 설치된 학원마스 (검증: PlayCover, 다른 IPA 런타임은 APP 변수 수정)
+# 지원: IPA로 설치된 학원마스 (검증: PlayCover, 다른 위치/런타임은 APP=<.app 경로>)
 #
 # 사용:
 #   make           - help 표시
@@ -10,14 +10,23 @@
 #   make revert    - 패치 되돌리기
 #   make logs      - 실행 중 dylib 로그 스트리밍
 #   make verify    - 현재 패치 상태 검증
+#   make playchain-status - 로그인 DB(PlayChain) 상태 읽기 전용 확인
 #   make clean     - 빌드 산물만 삭제
 #   make clean-all - vendor/ 포함 전부 삭제
+#
+# 앱 위치는 tools/lib/common.sh 의 find_app 이 자동 탐색
+# (/Applications, ~/Applications, PlayCover Applications). 다른 위치면 make run APP=<.app 경로>
 
 ROOT   := $(shell pwd)
 TOOLS  := $(ROOT)/tools
 VENDOR := $(ROOT)/vendor
 
-APP := $(HOME)/Library/Containers/io.playcover.PlayCover/Applications/jp.co.bandainamcoent.BNEI0421.app
+PY     ?= python3
+
+# APP 미지정 시 자동 탐색 (0개/여러 개면 빈 값 → 각 스크립트/verify 가 이유와 함께 실패)
+ifeq ($(strip $(APP)),)
+APP := $(shell bash -c '. "$(TOOLS)/lib/common.sh" && find_app' 2>/dev/null)
+endif
 BIN := $(APP)/idolmaster_gakuen
 
 # --- 의존성 버전 pin (재현성 확보) -----------------------------------------
@@ -31,7 +40,7 @@ INSERT_DYLIB_REF  := master
 
 # --- 타겟 ------------------------------------------------------------------
 
-.PHONY: help setup patch run revert logs verify clean clean-all
+.PHONY: help setup patch run revert logs verify playchain-status clean clean-all
 
 help:
 	@echo "gakumas-kr-mac 사용법:"
@@ -42,8 +51,15 @@ help:
 	@echo "  make revert   - 패치 되돌리기 (원본 복원)"
 	@echo "  make logs     - 실행 중 dylib 로그 스트리밍"
 	@echo "  make verify   - 현재 패치 상태 검증"
+	@echo "  make playchain-status - 로그인 DB(PlayChain) 상태 확인 (읽기 전용)"
 	@echo "  make clean    - 빌드 산물 삭제 (vendor/는 유지)"
 	@echo "  make clean-all - vendor/ 포함 전부 삭제"
+	@echo ""
+	@echo "앱: $(if $(APP),$(APP),(찾지 못함 — make verify 로 이유 확인, APP=<.app 경로> 로 지정 가능))"
+	@echo ""
+	@echo "Xcode 라이선스 미동의 상태면 /usr/bin/make 자체가 exit 69 로 실패함. 그때는:"
+	@echo "  bash tools/resign-with-jit.sh        (make run 과 동일)"
+	@echo "  DEVELOPER_DIR=/Library/Developer/CommandLineTools make run"
 	@echo ""
 	@echo "의존성:"
 	@echo "  Dobby $(DOBBY_REF)"
@@ -76,7 +92,7 @@ $(TOOLS)/libdobby.dylib: $(VENDOR)/Dobby/.cloned
 		-output $@.tmp $(VENDOR)/Dobby/build/libdobby.dylib > /dev/null 2>&1
 	@mv $@.tmp $@
 	@chmod +x $@
-	@echo "   $(TOOLS)/libdobby.dylib ($$(stat -f '%z' $@) bytes, $$(vtool -show-build $@ | awk '/platform/ {print $$2}'))"
+	@echo "   $(TOOLS)/libdobby.dylib ($$(/usr/bin/stat -f '%z' $@) bytes, $$(vtool -show-build $@ | awk '/platform/ {print $$2}'))"
 
 $(VENDOR)/Dobby/.cloned:
 	@mkdir -p $(VENDOR)
@@ -92,7 +108,7 @@ $(TOOLS)/insert_dylib: $(VENDOR)/insert_dylib/.cloned
 	@echo "→ insert_dylib 빌드"
 	@clang -O2 -o $@ $(VENDOR)/insert_dylib/insert_dylib/main.c
 	@chmod +x $@
-	@echo "   $(TOOLS)/insert_dylib ($$(stat -f '%z' $@) bytes)"
+	@echo "   $(TOOLS)/insert_dylib ($$(/usr/bin/stat -f '%z' $@) bytes)"
 
 $(VENDOR)/insert_dylib/.cloned:
 	@mkdir -p $(VENDOR)
@@ -106,26 +122,40 @@ $(VENDOR)/insert_dylib/.cloned:
 # === 워크플로우 ============================================================
 
 patch: setup
-	@bash $(TOOLS)/patch.sh
+	@APP="$(APP)" bash $(TOOLS)/patch.sh
 
 run:
-	@bash $(TOOLS)/resign-with-jit.sh
+	@APP="$(APP)" bash $(TOOLS)/resign-with-jit.sh
 
 revert:
-	@bash $(TOOLS)/revert.sh
+	@APP="$(APP)" bash $(TOOLS)/revert.sh
 
 logs:
 	@bash $(TOOLS)/watch-logs.sh
 
 verify:
-	@echo "=== 서명 검증 ==="
-	@codesign --verify --verbose "$(APP)" 2>&1 | head -2
+	@APP="$(APP)" bash -c '. "$(TOOLS)/lib/common.sh" && find_app' >/dev/null || \
+		{ echo "ERROR: 검증할 앱이 없음 (위 참고)" >&2; exit 1; }
+	@echo "=== 앱 ==="
+	@echo "  $(APP)"
 	@echo ""
-	@echo "=== 주입된 dylib ==="
-	@otool -L "$(BIN)" 2>/dev/null | grep -E "Gakumas|libdobby|PlayTools" | sed 's/^/  /' || echo "  (바이너리 없음 — patch 먼저 실행)"
+	@echo "=== 서명 검증 ==="
+	@codesign --verify --verbose "$(APP)" 2>&1 | head -2 | sed 's/^/  /'
+	@echo ""
+	@echo "=== 주입된 dylib (로드 커맨드 수 — 정상: 각 1) ==="
+	@for n in GakumasLocalifyIOS_KR libdobby GakuPlayChainCompat PlayTools; do \
+		c=$$($(PY) "$(TOOLS)/macho-loads.py" "$(BIN)" --count $$n) || \
+			{ echo "ERROR: Mach-O 파싱 실패: $(BIN)" >&2; exit 1; }; \
+		f=""; [ $$n = PlayTools ] || [ -f "$(APP)/Frameworks/$$n.dylib" ] || f="  (Frameworks 에 파일 없음)"; \
+		printf '  %-24s %s%s\n' $$n "$$c" "$$f"; \
+	done
 	@echo ""
 	@echo "=== JIT 엔타이틀먼트 ==="
-	@codesign -d --entitlements - "$(BIN)" 2>&1 | grep -E "allow-jit|disable-executable" | sed 's/^/  /' || echo "  (엔타이틀먼트 없음)"
+	@e=$$(codesign -d --entitlements - "$(BIN)" 2>&1 | grep -E "allow-jit|disable-executable"); \
+		if [ -n "$$e" ]; then echo "$$e" | sed 's/^/  /'; else echo "  (없음 — make run 이 실행 직전에 추가)"; fi
+
+playchain-status:
+	@$(PY) "$(TOOLS)/login-persistence-poc/playchain-recover.py" check
 
 # === 정리 ==================================================================
 
